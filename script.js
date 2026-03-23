@@ -1,18 +1,140 @@
 // Variables to control game state
 let gameRunning = false; // Keeps track of whether game is active or not
-let dropMaker; // Will store our timer that creates drops regularly
+let dropMaker; // Timer that creates water drops
+let polutionCloud; // Timer that creates pollution clouds
+let timerInterval; // Tracks the timer update loop
+let collisionChecker; // Detects collisions between drops and the can
+let elapsedSeconds = 0; // Total active play time in seconds
+let speedStep = 0; // Increases every 30 seconds to speed up spawning
+let score = 0;
+let gameOver = false;
+
+const HIGH_SCORE_KEY = "waterDropHighScore";
+
+const WATER_DROP_BASE_SPAWN_MS = 1000;
+const POLUTION_CLOUD_BASE_SPAWN_MS = 5000;
+const SPEED_STEP_SECONDS = 15;
+const SPEED_FACTOR_PER_STEP = 0.5;
+const MAX_SPEED_STEP = 8;
+
+const CAN_HITBOX_INSET_X_RATIO = 0.18;
+const CAN_HITBOX_INSET_Y_RATIO = 0.3;
+const DROP_HITBOX_INSET_X_RATIO = 0.2;
+const DROP_HITBOX_INSET_Y_RATIO = 0.2;
+const CLOUD_HITBOX_INSET_X_RATIO = 0.22;
+const CLOUD_HITBOX_INSET_Y_RATIO = 0.25;
+
+const startButton = document.getElementById("start-btn");
+const timeDisplay = document.getElementById("time");
+const scoreDisplay = document.getElementById("score");
+const gameContainer = document.getElementById("game-container");
+const waterCan = document.getElementById("water-can");
+const loseModal = document.getElementById("lose-modal");
+const finalScoreDisplay = document.getElementById("final-score");
+const highScoreDisplay = document.getElementById("high-score");
+const restartButton = document.getElementById("restart-btn");
+
+let isDraggingCan = false;
+let canDragOffsetX = 0;
+
+// Show timer starting at 0 before the game begins
+timeDisplay.textContent = elapsedSeconds;
+scoreDisplay.textContent = score;
 
 // Wait for button click to start the game
-document.getElementById("start-btn").addEventListener("click", startGame);
+startButton.addEventListener("click", startGame);
+restartButton.addEventListener("click", restartGame);
+
+// Prevent browser image drag behavior and enable controlled dragging
+waterCan.draggable = false;
+waterCan.addEventListener("mousedown", (event) => {
+  const canRect = waterCan.getBoundingClientRect();
+  isDraggingCan = true;
+  canDragOffsetX = event.clientX - canRect.left;
+  waterCan.classList.add("dragging");
+  event.preventDefault();
+});
+
+window.addEventListener("mousemove", (event) => {
+  if (!isDraggingCan) return;
+
+  const containerRect = gameContainer.getBoundingClientRect();
+  const maxLeft = containerRect.width - waterCan.offsetWidth;
+  const desiredLeft = event.clientX - containerRect.left - canDragOffsetX;
+  const boundedLeft = Math.max(0, Math.min(desiredLeft, maxLeft));
+
+  waterCan.style.left = `${boundedLeft}px`;
+  waterCan.style.transform = "none";
+});
+
+window.addEventListener("mouseup", () => {
+  if (!isDraggingCan) return;
+  isDraggingCan = false;
+  waterCan.classList.remove("dragging");
+});
 
 function startGame() {
-  // Prevent multiple games from running at once
-  if (gameRunning) return;
+  if (gameOver) return;
 
+  // If running, pause the game
+  if (gameRunning) {
+    stopSpawnTimers();
+    clearInterval(timerInterval);
+    clearInterval(collisionChecker);
+    setDropsPaused(true);
+    gameRunning = false;
+    startButton.textContent = "Start";
+    return;
+  }
+
+  // If paused/stopped, start the game
   gameRunning = true;
+  startButton.textContent = "Pause";
+  setDropsPaused(false);
 
-  // Create new drops every second (1000 milliseconds)
-  dropMaker = setInterval(createDrop, 1000);
+  startSpawnTimers();
+
+  // Count up while the game is actively running
+  timerInterval = setInterval(() => {
+    elapsedSeconds += 1;
+    timeDisplay.textContent = elapsedSeconds;
+
+    const nextSpeedStep = Math.min(
+      MAX_SPEED_STEP,
+      Math.floor(elapsedSeconds / SPEED_STEP_SECONDS)
+    );
+    if (nextSpeedStep !== speedStep) {
+      speedStep = nextSpeedStep;
+      startSpawnTimers();
+    }
+  }, 1000);
+
+  collisionChecker = setInterval(checkCollisions, 16);
+}
+
+function getSpawnInterval(baseIntervalMs) {
+  return baseIntervalMs * Math.pow(SPEED_FACTOR_PER_STEP, speedStep);
+}
+
+function stopSpawnTimers() {
+  clearInterval(dropMaker);
+  clearInterval(polutionCloud);
+}
+
+function startSpawnTimers() {
+  stopSpawnTimers();
+  dropMaker = setInterval(createDrop, getSpawnInterval(WATER_DROP_BASE_SPAWN_MS));
+  polutionCloud = setInterval(
+    createPolutionCloud,
+    getSpawnInterval(POLUTION_CLOUD_BASE_SPAWN_MS)
+  );
+}
+
+function setDropsPaused(isPaused) {
+  const drops = document.querySelectorAll(".water-drop, .polution-cloud");
+  drops.forEach((drop) => {
+    drop.style.animationPlayState = isPaused ? "paused" : "running";
+  });
 }
 
 function createDrop() {
@@ -24,7 +146,9 @@ function createDrop() {
   const initialSize = 60;
   const sizeMultiplier = Math.random() * 0.8 + 0.5;
   const size = initialSize * sizeMultiplier;
+  const scoreValue = Math.floor(size / 10);
   drop.style.width = drop.style.height = `${size}px`;
+  drop.dataset.size = `${scoreValue}`;
 
   // Position the drop randomly across the game width
   // Subtract 60 pixels to keep drops fully inside the container
@@ -41,5 +165,186 @@ function createDrop() {
   // Remove drops that reach the bottom (weren't clicked)
   drop.addEventListener("animationend", () => {
     drop.remove(); // Clean up drops that weren't caught
+  });
+}
+
+function checkCollisions() {
+  const canRectRaw = waterCan.getBoundingClientRect();
+  const canRect = insetRect(
+    canRectRaw,
+    canRectRaw.width * CAN_HITBOX_INSET_X_RATIO,
+    canRectRaw.height * CAN_HITBOX_INSET_Y_RATIO
+  );
+
+  const drops = document.querySelectorAll(".water-drop");
+  const clouds = document.querySelectorAll(".polution-cloud");
+
+  drops.forEach((drop) => {
+    if (drop.dataset.caught === "true") return;
+
+    const dropRectRaw = drop.getBoundingClientRect();
+    const dropRect = insetRect(
+      dropRectRaw,
+      dropRectRaw.width * DROP_HITBOX_INSET_X_RATIO,
+      dropRectRaw.height * DROP_HITBOX_INSET_Y_RATIO
+    );
+
+    const isOverlapping = isRectOverlapping(dropRect, canRect);
+
+    if (!isOverlapping) return;
+
+    drop.dataset.caught = "true";
+    score += Number(drop.dataset.size || 0);
+    scoreDisplay.textContent = score;
+    drop.remove();
+  });
+
+  for (const cloud of clouds) {
+    const cloudRectRaw = cloud.getBoundingClientRect();
+    const cloudRect = insetRect(
+      cloudRectRaw,
+      cloudRectRaw.width * CLOUD_HITBOX_INSET_X_RATIO,
+      cloudRectRaw.height * CLOUD_HITBOX_INSET_Y_RATIO
+    );
+
+    if (isRectOverlapping(cloudRect, canRect)) {
+      endGame();
+      break;
+    }
+  }
+}
+
+function insetRect(rect, insetX, insetY) {
+  const maxInsetX = Math.max(0, rect.width / 2 - 1);
+  const maxInsetY = Math.max(0, rect.height / 2 - 1);
+
+  const safeInsetX = Math.min(Math.max(0, insetX), maxInsetX);
+  const safeInsetY = Math.min(Math.max(0, insetY), maxInsetY);
+
+  return {
+    left: rect.left + safeInsetX,
+    right: rect.right - safeInsetX,
+    top: rect.top + safeInsetY,
+    bottom: rect.bottom - safeInsetY
+  };
+}
+
+function isRectOverlapping(rectA, rectB) {
+  return (
+    rectA.left < rectB.right &&
+    rectA.right > rectB.left &&
+    rectA.top < rectB.bottom &&
+    rectA.bottom > rectB.top
+  );
+}
+
+function endGame() {
+  if (gameOver) return;
+
+  gameOver = true;
+  gameRunning = false;
+  stopSpawnTimers();
+  clearInterval(timerInterval);
+  clearInterval(collisionChecker);
+  setDropsPaused(true);
+
+  const highScoreResult = updateHighScore(score);
+
+  finalScoreDisplay.textContent = score;
+  highScoreDisplay.textContent = highScoreResult.highScore;
+  highScoreDisplay.classList.toggle("new-high-score", highScoreResult.isNewHighScore);
+
+  loseModal.classList.remove("hidden");
+  startButton.textContent = "Start";
+  startButton.disabled = true;
+
+  if (highScoreResult.isNewHighScore) {
+    runHighScoreConfetti();
+  }
+}
+
+function updateHighScore(finalScore) {
+  const storedValue = Number(localStorage.getItem(HIGH_SCORE_KEY));
+  const previousHighScore = Number.isFinite(storedValue) ? storedValue : 0;
+
+  const isNewHighScore =
+    previousHighScore <= 0 ? finalScore > 0 : finalScore > previousHighScore;
+
+  const highScore = isNewHighScore ? finalScore : previousHighScore;
+
+  if (isNewHighScore) {
+    localStorage.setItem(HIGH_SCORE_KEY, String(finalScore));
+  }
+
+  return { isNewHighScore, highScore };
+}
+
+function runHighScoreConfetti() {
+  if (typeof confetti !== "function") return;
+
+  const defaults = {
+    spread: 70,
+    ticks: 120,
+    gravity: 1,
+    scalar: 1,
+    origin: { y: 0.6 }
+  };
+
+  confetti({ ...defaults, particleCount: 140 });
+  setTimeout(() => {
+    confetti({ ...defaults, particleCount: 80, angle: 60, origin: { x: 0, y: 0.65 } });
+    confetti({ ...defaults, particleCount: 80, angle: 120, origin: { x: 1, y: 0.65 } });
+  }, 180);
+}
+
+function clearFallingObjects() {
+  const fallingObjects = document.querySelectorAll(".water-drop, .polution-cloud");
+  fallingObjects.forEach((item) => item.remove());
+}
+
+function restartGame() {
+  stopSpawnTimers();
+  clearInterval(timerInterval);
+  clearInterval(collisionChecker);
+
+  gameRunning = false;
+  gameOver = false;
+  elapsedSeconds = 0;
+  speedStep = 0;
+  score = 0;
+
+  clearFallingObjects();
+
+  timeDisplay.textContent = elapsedSeconds;
+  scoreDisplay.textContent = score;
+  loseModal.classList.add("hidden");
+
+  startButton.disabled = false;
+  startButton.textContent = "Start";
+
+  waterCan.style.left = "50%";
+  waterCan.style.transform = "translateX(-50%)";
+}
+
+function createPolutionCloud() {
+  const cloud = document.createElement("img");
+  cloud.className = "polution-cloud";
+  cloud.src = "img/polutionCloud.png";
+  cloud.alt = "Pollution cloud";
+
+  const initialSize = 96;
+  const sizeMultiplier = Math.random() * 0.7 + 0.7;
+  const size = initialSize * sizeMultiplier;
+  cloud.style.width = `${size}px`;
+
+  const gameWidth = gameContainer.offsetWidth;
+  const xPosition = Math.random() * (gameWidth - size);
+  cloud.style.left = `${xPosition}px`;
+  cloud.style.animationDuration = "4s";
+
+  gameContainer.appendChild(cloud);
+
+  cloud.addEventListener("animationend", () => {
+    cloud.remove();
   });
 }

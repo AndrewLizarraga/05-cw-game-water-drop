@@ -29,7 +29,11 @@ body {
     justify-content: center;
     align-items: center;
     min-height: 100vh;
-    background-color: #f0f0f0;
+    background-color: #c5d6e4;
+    background-image: url("img/BackgroundImage.png");
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
     font-family: Arial, sans-serif;
 }
 
@@ -60,11 +64,27 @@ body {
 #game-container {
     width: 800px;
     height: 600px;
-    background-color: #e6f7ff;
+    background-color: rgba(0,102,204,0.3);
     border: 2px solid #333;
     border-radius: 8px;
     position: relative;
     overflow: hidden;
+}
+
+#water-can {
+    position: absolute;
+    bottom: 12px;
+    left: 50%;
+    width: 140px;
+    transform: translateX(-50%);
+    cursor: grab;
+    user-select: none;
+    -webkit-user-drag: none;
+    z-index: 20;
+}
+
+#water-can.dragging {
+    cursor: grabbing;
 }
 
 
@@ -90,20 +110,71 @@ body {
 
 .water-drop {
     position: absolute;
-    width: 60px;  /* increased from 40px */
-    height: 60px; /* increased from 40px */
-    background-color: #0099ff;
-    border-radius: 50%;
+    width: 60px;
+    height: 60px;
+    background: linear-gradient(170deg, #b9f2ff 0%, #49b9ff 42%, #127ddd 100%);
+    border-radius: 50% 50% 56% 56% / 62% 62% 38% 38%;
+    clip-path: polygon(
+        50% 0%,
+        66% 14%,
+        80% 30%,
+        90% 48%,
+        92% 62%,
+        85% 78%,
+        72% 90%,
+        50% 100%,
+        28% 90%,
+        15% 78%,
+        8% 62%,
+        10% 48%,
+        20% 30%,
+        34% 14%
+    );
     animation: dropFall linear forwards;
     transform-origin: center;
     cursor: pointer;
-    padding: 15px;  /* Add padding for larger click area */
-    margin: -15px;  /* Offset padding to maintain visual size */
-    transition: transform 0.1s ease;  /* Smooth hover effect */
+    box-shadow:
+        0 8px 14px rgba(5, 58, 115, 0.24),
+        inset -7px -10px 14px rgba(5, 72, 150, 0.2),
+        inset 8px 9px 12px rgba(255, 255, 255, 0.44);
+    transition: filter 0.16s ease;
+    animation-timing-function: linear;
+}
+
+.water-drop::before {
+    content: "";
+    position: absolute;
+    width: 44%;
+    height: 32%;
+    top: 18%;
+    left: 24%;
+    border-radius: 52% 48% 52% 48%;
+    background: radial-gradient(circle at 35% 35%, rgba(255, 255, 255, 0.95) 0%, rgba(255, 255, 255, 0.16) 62%, rgba(255, 255, 255, 0) 100%);
+    transform: rotate(-12deg);
+    pointer-events: none;
+}
+
+.water-drop::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    animation: dropWobble 0.9s ease-in-out infinite;
+    box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.3);
+    pointer-events: none;
+}
+
+.polution-cloud {
+    position: absolute;
+    top: 0;
+    animation: dropFall linear forwards;
+    user-select: none;
+    pointer-events: none;
+    z-index: 10;
 }
 
 .water-drop:hover {
-    transform: scale(1.1);  /* Slight grow effect on hover */
+    filter: brightness(1.08) saturate(1.08);
 }
 
 .bad-drop {
@@ -125,12 +196,101 @@ body {
     text-align: center;
 }
 
+.modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    z-index: 1000;
+}
+
+.modal-overlay.hidden {
+    display: none;
+}
+
+.modal-card {
+    width: min(92vw, 560px);
+    background: #ffffff;
+    border-radius: 14px;
+    padding: 24px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+
+.modal-card h2 {
+    font-size: 36px;
+    margin-bottom: 10px;
+    color: #f5402c;
+}
+
+.final-score-text,
+.high-score-text {
+    font-size: 22px;
+    font-weight: bold;
+    margin-bottom: 8px;
+}
+
+.charity-logo {
+    width: min(280px, 80%);
+    margin: 14px auto;
+    display: block;
+}
+
+.charity-message {
+    font-size: 16px;
+    line-height: 1.45;
+    color: #333;
+    margin-bottom: 16px;
+}
+
+.donate-btn,
+#restart-btn {
+    display: inline-block;
+    border: none;
+    border-radius: 8px;
+    padding: 10px 18px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    text-decoration: none;
+}
+
+.donate-btn {
+    background: #ffc907;
+    color: #131313;
+    margin-right: 10px;
+}
+
+#restart-btn {
+    background: #2e9df7;
+    color: #ffffff;
+}
+
+.new-high-score {
+    color: #159a48;
+}
+
 @keyframes dropFall {
     from {
         transform: translateY(-20px);
     }
     to {
         transform: translateY(600px);
+    }
+}
+
+@keyframes dropWobble {
+    0% {
+        transform: rotate(-2deg) scaleX(1);
+    }
+    50% {
+        transform: rotate(2deg) scaleX(1.03) scaleY(0.98);
+    }
+    100% {
+        transform: rotate(-2deg) scaleX(1);
     }
 }
 
@@ -141,5 +301,17 @@ body {
     
     #game-container {
         height: 70vh;
+    }
+
+    .score-panel {
+        flex-wrap: wrap;
+        gap: 8px;
+    }
+
+    .donate-btn,
+    #restart-btn {
+        display: block;
+        width: 100%;
+        margin: 8px 0 0;
     }
 }
