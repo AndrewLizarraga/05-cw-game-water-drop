@@ -50,7 +50,7 @@ body {
     align-items: center;
     width: min(800px, 95vw);
     padding: 10px;
-    background-color: #fff;
+    background-color: #FFC907 ;
     border-radius: 8px;
     box-shadow: 0 2px 4px rgba(0,0,0,0.1);
 }
@@ -189,6 +189,9 @@ body {
     margin-top: 0;
     margin-bottom: 5px;  /* reduced from 20px */
     text-align: center;
+    border: 3px solid #FFC907;
+    border-radius: 12px;
+    padding: 8px 16px;
 }
 
 .game-tagline {
