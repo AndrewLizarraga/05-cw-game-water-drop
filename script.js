@@ -17,6 +17,10 @@ const SPEED_STEP_SECONDS = 15;
 const SPEED_FACTOR_PER_STEP = 0.5;
 const MAX_SPEED_STEP = 8;
 
+const BASE_GAME_WIDTH = 800;
+const BASE_DROP_SIZE = 60;
+const BASE_CLOUD_SIZE = 96;
+
 const CAN_HITBOX_INSET_X_RATIO = 0.18;
 const CAN_HITBOX_INSET_Y_RATIO = 0.3;
 const DROP_HITBOX_INSET_X_RATIO = 0.2;
@@ -36,40 +40,49 @@ const restartButton = document.getElementById("restart-btn");
 
 let isDraggingCan = false;
 let canDragOffsetX = 0;
+let activePointerId = null;
 
 // Show timer starting at 0 before the game begins
 timeDisplay.textContent = elapsedSeconds;
 scoreDisplay.textContent = score;
+updateGameContainerMetrics();
 
 // Wait for button click to start the game
 startButton.addEventListener("click", startGame);
 restartButton.addEventListener("click", restartGame);
+window.addEventListener("resize", updateGameContainerMetrics);
 
 // Prevent browser image drag behavior and enable controlled dragging
 waterCan.draggable = false;
-waterCan.addEventListener("mousedown", (event) => {
+waterCan.addEventListener("pointerdown", (event) => {
   const canRect = waterCan.getBoundingClientRect();
   isDraggingCan = true;
+  activePointerId = event.pointerId;
   canDragOffsetX = event.clientX - canRect.left;
   waterCan.classList.add("dragging");
+  waterCan.setPointerCapture(event.pointerId);
   event.preventDefault();
 });
 
-window.addEventListener("mousemove", (event) => {
+window.addEventListener("pointermove", (event) => {
   if (!isDraggingCan) return;
-
-  const containerRect = gameContainer.getBoundingClientRect();
-  const maxLeft = containerRect.width - waterCan.offsetWidth;
-  const desiredLeft = event.clientX - containerRect.left - canDragOffsetX;
-  const boundedLeft = Math.max(0, Math.min(desiredLeft, maxLeft));
-
-  waterCan.style.left = `${boundedLeft}px`;
-  waterCan.style.transform = "none";
+  if (activePointerId !== null && event.pointerId !== activePointerId) return;
+  moveCanToClientX(event.clientX);
 });
 
-window.addEventListener("mouseup", () => {
+window.addEventListener("pointerup", (event) => {
   if (!isDraggingCan) return;
+  if (activePointerId !== null && event.pointerId !== activePointerId) return;
   isDraggingCan = false;
+  activePointerId = null;
+  waterCan.classList.remove("dragging");
+});
+
+window.addEventListener("pointercancel", (event) => {
+  if (!isDraggingCan) return;
+  if (activePointerId !== null && event.pointerId !== activePointerId) return;
+  isDraggingCan = false;
+  activePointerId = null;
   waterCan.classList.remove("dragging");
 });
 
@@ -137,13 +150,45 @@ function setDropsPaused(isPaused) {
   });
 }
 
+function clampValue(value, min, max) {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getScaledSize(baseSize, minSize, maxSize) {
+  const scale = gameContainer.offsetWidth / BASE_GAME_WIDTH;
+  return clampValue(baseSize * scale, minSize, maxSize);
+}
+
+function updateGameContainerMetrics() {
+  const fallDistance = gameContainer.offsetHeight + 40;
+  gameContainer.style.setProperty("--fall-distance", `${fallDistance}px`);
+
+  if (waterCan.style.left.endsWith("px")) {
+    const currentLeft = Number.parseFloat(waterCan.style.left) || 0;
+    const maxLeft = Math.max(0, gameContainer.offsetWidth - waterCan.offsetWidth);
+    const clampedLeft = clampValue(currentLeft, 0, maxLeft);
+    waterCan.style.left = `${clampedLeft}px`;
+    waterCan.style.transform = "none";
+  }
+}
+
+function moveCanToClientX(clientX) {
+  const containerRect = gameContainer.getBoundingClientRect();
+  const maxLeft = containerRect.width - waterCan.offsetWidth;
+  const desiredLeft = clientX - containerRect.left - canDragOffsetX;
+  const boundedLeft = Math.max(0, Math.min(desiredLeft, maxLeft));
+
+  waterCan.style.left = `${boundedLeft}px`;
+  waterCan.style.transform = "none";
+}
+
 function createDrop() {
   // Create a new div element that will be our water drop
   const drop = document.createElement("div");
   drop.className = "water-drop";
 
   // Make drops different sizes for visual variety
-  const initialSize = 60;
+  const initialSize = getScaledSize(BASE_DROP_SIZE, 30, 60);
   const sizeMultiplier = Math.random() * 0.8 + 0.5;
   const size = initialSize * sizeMultiplier;
   const scoreValue = Math.floor(size / 10);
@@ -151,10 +196,9 @@ function createDrop() {
   drop.dataset.size = `${scoreValue}`;
 
   // Position the drop randomly across the game width
-  // Subtract 60 pixels to keep drops fully inside the container
-  const gameWidth = document.getElementById("game-container").offsetWidth;
-  const xPosition = Math.random() * (gameWidth - 60);
-  drop.style.left = xPosition + "px";
+  const gameWidth = gameContainer.offsetWidth;
+  const xPosition = Math.random() * (gameWidth - size);
+  drop.style.left = `${xPosition}px`;
 
   // Make drops fall for 4 seconds
   drop.style.animationDuration = "4s";
@@ -257,10 +301,6 @@ function endGame() {
   loseModal.classList.remove("hidden");
   startButton.textContent = "Start";
   startButton.disabled = true;
-
-  if (highScoreResult.isNewHighScore) {
-    runHighScoreConfetti();
-  }
 }
 
 function updateHighScore(finalScore) {
@@ -274,27 +314,20 @@ function updateHighScore(finalScore) {
 
   if (isNewHighScore) {
     localStorage.setItem(HIGH_SCORE_KEY, String(finalScore));
+    confetti({
+      particleCount: 300,
+      spread: 90,
+      origin: {x:1, y: 0.6 }
+    })
+
+    confetti({
+      particleCount: 300,
+      spread: 90,
+      origin: { x: 0, y: 0.6}
+    });
   }
 
   return { isNewHighScore, highScore };
-}
-
-function runHighScoreConfetti() {
-  if (typeof confetti !== "function") return;
-
-  const defaults = {
-    spread: 70,
-    ticks: 120,
-    gravity: 1,
-    scalar: 1,
-    origin: { y: 0.6 }
-  };
-
-  confetti({ ...defaults, particleCount: 140 });
-  setTimeout(() => {
-    confetti({ ...defaults, particleCount: 80, angle: 60, origin: { x: 0, y: 0.65 } });
-    confetti({ ...defaults, particleCount: 80, angle: 120, origin: { x: 1, y: 0.65 } });
-  }, 180);
 }
 
 function clearFallingObjects() {
@@ -324,6 +357,7 @@ function restartGame() {
 
   waterCan.style.left = "50%";
   waterCan.style.transform = "translateX(-50%)";
+  updateGameContainerMetrics();
 }
 
 function createPolutionCloud() {
@@ -332,7 +366,7 @@ function createPolutionCloud() {
   cloud.src = "img/polutionCloud.png";
   cloud.alt = "Pollution cloud";
 
-  const initialSize = 96;
+  const initialSize = getScaledSize(BASE_CLOUD_SIZE, 56, 96);
   const sizeMultiplier = Math.random() * 0.7 + 0.7;
   const size = initialSize * sizeMultiplier;
   cloud.style.width = `${size}px`;
